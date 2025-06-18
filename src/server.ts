@@ -10,7 +10,12 @@ const port = process.env.PORT || 3000;
 const googleMapsClient = new Client({});
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: 'http://localhost:4321',
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -45,8 +50,8 @@ app.post('/calculate-route', async (req: Request, res: Response) => {
     });
 
     // Extract distances from the response
-    const distances = response.data.rows.map((row) =>
-      row.elements.map((element) => element.distance?.value || Infinity)
+    const distances = response.data.rows.map((row: { elements: any[] }) =>
+      row.elements.map((element: { distance: { value: any } }) => element.distance?.value || Infinity)
     );
 
     // Find the shortest path using a simple algorithm
@@ -68,9 +73,57 @@ app.post('/calculate-route', async (req: Request, res: Response) => {
   }
 });
 
+// Helper function to find the shortest path using simulated annealing
+function findOptimalPath(distances: number[][]): number[] {
+  const n = distances.length;
+  let currentPath = Array.from({ length: n }, (_, i) => i);
+
+  // Function to calculate the total distance of a path
+  const calculatePathDistance = (path: number[]): number => {
+    let total = 0;
+    for (let i = 0; i < n - 1; i++) {
+      total += distances[path[i]][path[i + 1]];
+    }
+    return total;
+  };
+
+  let bestPath = [...currentPath];
+  let bestDistance = calculatePathDistance(bestPath);
+
+  let temperature = 1000;
+  const coolingRate = 0.995;
+
+  while (temperature > 1) {
+    const newPath = [...currentPath];
+    // Swap two random destinations, keeping the start (index 0) fixed
+    const i = Math.floor(Math.random() * (n - 1)) + 1;
+    const j = Math.floor(Math.random() * (n - 1)) + 1;
+    [newPath[i], newPath[j]] = [newPath[j], newPath[i]];
+
+    const currentDistance = calculatePathDistance(currentPath);
+    const newDistance = calculatePathDistance(newPath);
+
+    if (newDistance < currentDistance || Math.exp((currentDistance - newDistance) / temperature) > Math.random()) {
+      currentPath = newPath;
+      if (newDistance < bestDistance) {
+        bestPath = newPath;
+        bestDistance = newDistance;
+      }
+    }
+
+    temperature *= coolingRate;
+  }
+
+  return bestPath;
+}
+
 // Helper function to find the shortest path
 function findShortestPath(distances: number[][]): number[] {
   const n = distances.length;
+  if (n <= 10) {
+    return findOptimalPath(distances);
+  }
+
   const path: number[] = [0]; // Start with the first address
   const visited = new Set([0]);
 
